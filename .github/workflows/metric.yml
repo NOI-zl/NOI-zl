@@ -8,10 +8,56 @@ jobs:
   github-metrics:
     runs-on: ubuntu-latest
     environment: 
-      name: PRODUCTION  # 改为大写，与您的环境 secret 名称匹配
+      name: PRODUCTION
     permissions:
       contents: write
     steps:
+      # 调试步骤 1: 检查 secret 是否存在
+      - name: Check if secret exists
+        run: |
+          if [ -n "${{ secrets.METRICS_TOKEN }}" ]; then
+            echo "✅ METRICS_TOKEN secret exists"
+            # 检查 token 长度（不暴露完整 token）
+            TOKEN_LENGTH=$(echo -n "${{ secrets.METRICS_TOKEN }}" | wc -c)
+            echo "Token length: $TOKEN_LENGTH characters"
+            # 检查 token 格式
+            TOKEN="${{ secrets.METRICS_TOKEN }}"
+            if [[ $TOKEN == ghp_* ]]; then
+              echo "Token format: classic (ghp_)"
+            elif [[ $TOKEN == github_pat_* ]]; then
+              echo "Token format: fine-grained (github_pat_)"
+            else
+              echo "⚠️ Token format unknown: ${TOKEN:0:10}..."
+            fi
+          else
+            echo "❌ METRICS_TOKEN secret is empty or not available"
+            exit 1
+          fi
+      
+      # 调试步骤 2: 检查环境变量是否被正确传递
+      - name: Check environment
+        run: |
+          echo "Environment: ${{ github.environment }}"
+          echo "Environment name: ${{ github.event.environment }}"
+      
+      # 调试步骤 3: 尝试将 token 设为环境变量并测试
+      - name: Test token with curl
+        env:
+          TEST_TOKEN: ${{ secrets.METRICS_TOKEN }}
+        run: |
+          echo "Testing token with GitHub API..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TEST_TOKEN" https://api.github.com/user)
+          if [ $RESPONSE -eq 200 ]; then
+            echo "✅ Token is valid (HTTP $RESPONSE)"
+          else
+            echo "❌ Token is invalid (HTTP $RESPONSE)"
+            exit 1
+          fi
+      
+      # 原始 metrics 步骤
       - uses: lowlighter/metrics@latest
         with:
           token: ${{ secrets.METRICS_TOKEN }}
+          # 添加一些配置验证
+          config_timezone: Asia/Shanghai
+          plugin_languages: yes
